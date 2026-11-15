@@ -1,0 +1,29 @@
+{
+  "before": {
+    "Overall": -28.3,
+    "Dynamic Obstacle": -25.0,
+    "Stationary Obstacle": -23.7,
+    "Semantic Terrain": -24.0,
+    "Geometric Terrain": -27.8,
+    "Accessibility": -34.1,
+    "Visibility": -27.6,
+    "Social Norms": -59.8
+  },
+  "after": {
+    "Overall": 36.9,
+    "Dynamic Obstacle": 50.5,
+    "Stationary Obstacle": 41.1,
+    "Semantic Terrain": 39.7,
+    "Geometric Terrain": 36.1,
+    "Accessibility": 32.8,
+    "Visibility": 30.3,
+    "Social Norms": 24.1
+  },
+  "dataset": {
+    "total": 10220,
+    "train": 8392,
+    "test": 1828,
+    "goal": 8718,
+    "directions": 1502
+  }
+}

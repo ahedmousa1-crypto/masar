@@ -1,0 +1,197 @@
+"""Procedural materials. The street set matches the legacy gen_scene.py look."""
+
+import bpy
+
+
+def shader_input(node, *names):
+    for name in names:
+        if name in node.inputs:
+            return node.inputs[name]
+    raise KeyError(f"none of {names} on {node.bl_idname}")
+
+
+def layered_material(name, dark, light, patch_scale, grain_scale, rough_lo, rough_hi, bump, metallic=0.0):
+    """Coarse patches (wear, stains, grass clumps) plus fine grain on color, roughness, and bump."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    coord = nodes.new("ShaderNodeTexCoord")
+    patch_map = nodes.new("ShaderNodeMapping")
+    patch_map.inputs["Scale"].default_value = (patch_scale, patch_scale, patch_scale)
+    grain_map = nodes.new("ShaderNodeMapping")
+    grain_map.inputs["Scale"].default_value = (grain_scale, grain_scale, grain_scale)
+
+    patch = nodes.new("ShaderNodeTexNoise")
+    patch.inputs["Scale"].default_value = 1.0
+    patch.inputs["Detail"].default_value = 4.0
+    patch.inputs["Roughness"].default_value = 0.45
+    grain = nodes.new("ShaderNodeTexNoise")
+    grain.inputs["Scale"].default_value = 1.0
+    grain.inputs["Detail"].default_value = 9.0
+    grain.inputs["Roughness"].default_value = 0.65
+
+    color_mix = nodes.new("ShaderNodeMix")
+    color_mix.data_type = "RGBA"
+    color_mix.inputs["A"].default_value = (*dark, 1.0)
+    color_mix.inputs["B"].default_value = (*light, 1.0)
+
+    rough_mix = nodes.new("ShaderNodeMix")
+    rough_mix.data_type = "FLOAT"
+    rough_mix.inputs["A"].default_value = rough_lo
+    rough_mix.inputs["B"].default_value = rough_hi
+
+    bump_node = nodes.new("ShaderNodeBump")
+    bump_node.inputs["Strength"].default_value = bump
+    bump_node.inputs["Distance"].default_value = 0.12
+
+    links.new(coord.outputs["Object"], patch_map.inputs["Vector"])
+    links.new(coord.outputs["Object"], grain_map.inputs["Vector"])
+    links.new(patch_map.outputs["Vector"], patch.inputs["Vector"])
+    links.new(grain_map.outputs["Vector"], grain.inputs["Vector"])
+    links.new(patch.outputs["Fac"], shader_input(color_mix, "Factor", "Factor_Float", "Fac"))
+    links.new(color_mix.outputs["Result"], bsdf.inputs["Base Color"])
+    links.new(patch.outputs["Fac"], shader_input(rough_mix, "Factor", "Factor_Float", "Fac"))
+    links.new(rough_mix.outputs["Result"], bsdf.inputs["Roughness"])
+    links.new(grain.outputs["Fac"], bump_node.inputs["Height"])
+    links.new(bump_node.outputs["Normal"], bsdf.inputs["Normal"])
+    bsdf.inputs["Metallic"].default_value = metallic
+    return mat
+
+
+def flat_material(name, color, roughness=0.55, metallic=0.0):
+    """Solid color for markings and painted parts that must read clearly in the render."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+    bsdf.inputs["Roughness"].default_value = roughness
+    bsdf.inputs["Metallic"].default_value = metallic
+    return mat
+
+
+def build_materials():
+    """Every material the world uses, keyed by short name."""
+    return {
+        # Legacy street set (same parameters as legacy/blender/gen_scene.py).
+        "grass": layered_material("mat_grass", (0.04, 0.11, 0.025), (0.26, 0.36, 0.09), 0.55, 8.0, 0.82, 1.0, 0.7),
+        "sidewalk": layered_material("mat_sidewalk", (0.28, 0.27, 0.25), (0.70, 0.68, 0.64), 1.1, 16.0, 0.62, 0.95, 0.55),
+        "curb": layered_material("mat_curb", (0.25, 0.24, 0.22), (0.55, 0.53, 0.50), 1.4, 18.0, 0.7, 0.96, 0.4),
+        "bike_lane": layered_material("mat_bike_lane", (0.06, 0.16, 0.10), (0.22, 0.40, 0.22), 1.6, 14.0, 0.7, 0.95, 0.35),
+        "road": layered_material("mat_road", (0.02, 0.02, 0.025), (0.24, 0.22, 0.18), 0.65, 20.0, 0.7, 0.98, 0.65),
+        "crosswalk": flat_material("mat_crosswalk", (0.95, 0.95, 0.93), roughness=0.45),
+        "crosswalk_dark": flat_material("mat_crosswalk_dark", (0.12, 0.12, 0.11), roughness=0.75),
+        "stairs": layered_material("mat_stairs", (0.30, 0.29, 0.27), (0.66, 0.64, 0.60), 1.3, 15.0, 0.65, 0.95, 0.5),
+        "ramp": layered_material("mat_ramp", (0.28, 0.30, 0.28), (0.60, 0.62, 0.58), 1.2, 14.0, 0.65, 0.95, 0.45),
+        "wood": layered_material("mat_wood", (0.18, 0.09, 0.04), (0.55, 0.34, 0.16), 2.2, 6.0, 0.5, 0.82, 0.3),
+        "metal": layered_material("mat_metal", (0.08, 0.09, 0.10), (0.35, 0.38, 0.40), 3.0, 18.0, 0.28, 0.55, 0.2, metallic=0.7),
+        "plastic": layered_material("mat_plastic", (0.08, 0.14, 0.11), (0.28, 0.40, 0.30), 2.5, 10.0, 0.4, 0.7, 0.15),
+        "bike_metal": layered_material("mat_bike_metal", (0.10, 0.11, 0.12), (0.55, 0.58, 0.60), 4.0, 22.0, 0.22, 0.5, 0.15, metallic=0.88),
+        "tree_canopy": layered_material("mat_tree_canopy", (0.05, 0.20, 0.05), (0.28, 0.50, 0.14), 0.75, 7.0, 0.78, 0.95, 0.35),
+        # World additions, same layered style.
+        "plaza": layered_material("mat_plaza", (0.36, 0.33, 0.29), (0.74, 0.70, 0.62), 0.9, 12.0, 0.6, 0.92, 0.5),
+        "terrace": layered_material("mat_terrace", (0.33, 0.31, 0.28), (0.68, 0.65, 0.60), 1.0, 14.0, 0.62, 0.94, 0.5),
+        "soil": layered_material("mat_soil", (0.10, 0.07, 0.04), (0.30, 0.22, 0.14), 1.5, 12.0, 0.85, 1.0, 0.6),
+        "shrub": layered_material("mat_shrub", (0.04, 0.15, 0.04), (0.20, 0.40, 0.12), 1.2, 9.0, 0.8, 0.95, 0.5),
+        # World 3 (campus).
+        "deck": layered_material("mat_deck", (0.20, 0.12, 0.07), (0.50, 0.36, 0.22), 1.8, 5.0, 0.55, 0.85, 0.35),
+        "gravel": layered_material("mat_gravel", (0.32, 0.29, 0.24), (0.66, 0.61, 0.52), 2.5, 30.0, 0.8, 1.0, 0.8),
+        "track": layered_material("mat_track", (0.38, 0.10, 0.07), (0.62, 0.22, 0.15), 1.5, 20.0, 0.75, 0.95, 0.4),
+        "field": layered_material("mat_field", (0.05, 0.22, 0.05), (0.25, 0.50, 0.12), 0.8, 10.0, 0.8, 1.0, 0.5),
+        "facade_light": layered_material("mat_facade_light", (0.55, 0.50, 0.42), (0.80, 0.76, 0.68), 0.6, 10.0, 0.75, 0.95, 0.25),
+        "facade_brick": layered_material("mat_facade_brick", (0.30, 0.12, 0.08), (0.55, 0.28, 0.20), 0.8, 14.0, 0.8, 0.97, 0.35),
+        "facade_gray": layered_material("mat_facade_gray", (0.30, 0.31, 0.32), (0.55, 0.56, 0.57), 0.7, 12.0, 0.7, 0.93, 0.25),
+        "facade_beige": layered_material("mat_facade_beige", (0.55, 0.45, 0.32), (0.78, 0.68, 0.52), 0.7, 11.0, 0.75, 0.95, 0.25),
+        "glass": flat_material("mat_glass", (0.06, 0.09, 0.12), roughness=0.08, metallic=0.4),
+        # Separate from window glass so car windows do not glow when windows light up at night.
+        "car_glass": flat_material("mat_car_glass", (0.05, 0.07, 0.09), roughness=0.06, metallic=0.4),
+        "door": flat_material("mat_door", (0.22, 0.13, 0.07), roughness=0.5),
+        "roof": layered_material("mat_roof", (0.10, 0.10, 0.11), (0.25, 0.24, 0.24), 1.0, 15.0, 0.75, 0.95, 0.3),
+        "car_red": flat_material("mat_car_red", (0.45, 0.04, 0.03), roughness=0.25, metallic=0.5),
+        "car_blue": flat_material("mat_car_blue", (0.05, 0.12, 0.35), roughness=0.25, metallic=0.5),
+        "car_white": flat_material("mat_car_white", (0.80, 0.80, 0.78), roughness=0.25, metallic=0.3),
+        "car_gray": flat_material("mat_car_gray", (0.25, 0.26, 0.27), roughness=0.3, metallic=0.6),
+        "car_black": flat_material("mat_car_black", (0.03, 0.03, 0.035), roughness=0.3, metallic=0.5),
+        "tire": flat_material("mat_tire", (0.02, 0.02, 0.02), roughness=0.9),
+        "cone_orange": flat_material("mat_cone_orange", (0.90, 0.25, 0.02), roughness=0.5),
+        "barrier_red": flat_material("mat_barrier_red", (0.75, 0.05, 0.03), roughness=0.5),
+        "barrier_white": flat_material("mat_barrier_white", (0.92, 0.92, 0.90), roughness=0.5),
+        "hoarding": layered_material("mat_hoarding", (0.45, 0.36, 0.22), (0.70, 0.60, 0.42), 1.8, 8.0, 0.7, 0.9, 0.2),
+        "lamp_glass": flat_material("mat_lamp_glass", (0.90, 0.88, 0.75), roughness=0.3),
+        # Phase 2 blocks.
+        "house_white": layered_material("mat_house_white", (0.70, 0.70, 0.68), (0.90, 0.90, 0.88), 0.6, 10.0, 0.75, 0.95, 0.2),
+        "house_yellow": layered_material("mat_house_yellow", (0.70, 0.60, 0.30), (0.90, 0.80, 0.45), 0.6, 10.0, 0.75, 0.95, 0.2),
+        "house_blue": layered_material("mat_house_blue", (0.30, 0.42, 0.58), (0.48, 0.60, 0.75), 0.6, 10.0, 0.75, 0.95, 0.2),
+        "house_red": layered_material("mat_house_red", (0.45, 0.14, 0.10), (0.62, 0.26, 0.20), 0.6, 10.0, 0.75, 0.95, 0.2),
+        "house_gray": layered_material("mat_house_gray", (0.38, 0.38, 0.40), (0.58, 0.58, 0.60), 0.6, 10.0, 0.75, 0.95, 0.2),
+        "house_green": layered_material("mat_house_green", (0.32, 0.45, 0.32), (0.50, 0.63, 0.48), 0.6, 10.0, 0.75, 0.95, 0.2),
+        "roof_tile": layered_material("mat_roof_tile", (0.25, 0.08, 0.05), (0.45, 0.18, 0.12), 1.5, 18.0, 0.7, 0.9, 0.4),
+        "park_path": layered_material("mat_park_path", (0.45, 0.38, 0.28), (0.72, 0.64, 0.50), 1.2, 22.0, 0.8, 0.98, 0.5),
+        "concrete": layered_material("mat_concrete", (0.42, 0.42, 0.44), (0.66, 0.66, 0.68), 0.9, 16.0, 0.55, 0.85, 0.3),
+        "rubber": layered_material("mat_rubber", (0.35, 0.10, 0.07), (0.55, 0.20, 0.14), 1.6, 30.0, 0.85, 1.0, 0.4),
+        "court": flat_material("mat_court", (0.12, 0.30, 0.50), roughness=0.7),
+        "court_line": flat_material("mat_court_line", (0.95, 0.95, 0.95), roughness=0.6),
+        "water": flat_material("mat_water", (0.04, 0.12, 0.20), roughness=0.05, metallic=0.2),
+        "stone": layered_material("mat_stone", (0.40, 0.38, 0.35), (0.62, 0.60, 0.56), 1.4, 14.0, 0.7, 0.95, 0.5),
+        "bronze": flat_material("mat_bronze", (0.35, 0.22, 0.10), roughness=0.35, metallic=0.8),
+        "paint_red": flat_material("mat_paint_red", (0.70, 0.05, 0.04), roughness=0.4),
+        "paint_yellow": flat_material("mat_paint_yellow", (0.90, 0.70, 0.05), roughness=0.4),
+        "paint_blue": flat_material("mat_paint_blue", (0.05, 0.20, 0.60), roughness=0.4),
+        "paint_green": flat_material("mat_paint_green", (0.05, 0.40, 0.20), roughness=0.4),
+        "paint_orange": flat_material("mat_paint_orange", (0.90, 0.40, 0.05), roughness=0.4),
+        "paint_white": flat_material("mat_paint_white", (0.88, 0.88, 0.86), roughness=0.4),
+        "paint_black": flat_material("mat_paint_black", (0.04, 0.04, 0.045), roughness=0.5),
+        # World 2 (old town).
+        "cobblestone": layered_material("mat_cobblestone", (0.20, 0.17, 0.14), (0.55, 0.48, 0.40), 1.6, 34.0, 0.7, 0.95, 0.9),
+        "pavers": layered_material("mat_pavers", (0.40, 0.36, 0.31), (0.78, 0.73, 0.64), 1.0, 9.0, 0.6, 0.9, 0.6),
+        "wall_stone": layered_material("mat_wall_stone", (0.30, 0.27, 0.23), (0.58, 0.53, 0.45), 1.8, 7.0, 0.8, 0.97, 0.8),
+        "stucco_ochre": layered_material("mat_stucco_ochre", (0.55, 0.28, 0.05), (0.8, 0.48, 0.12), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "stucco_terracotta": layered_material("mat_stucco_terracotta", (0.45, 0.13, 0.06), (0.68, 0.25, 0.12), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "stucco_cream": layered_material("mat_stucco_cream", (0.7, 0.58, 0.38), (0.9, 0.8, 0.58), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "stucco_pink": layered_material("mat_stucco_pink", (0.65, 0.28, 0.28), (0.85, 0.45, 0.42), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "stucco_yellow": layered_material("mat_stucco_yellow", (0.72, 0.52, 0.06), (0.92, 0.72, 0.18), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "stucco_sage": layered_material("mat_stucco_sage", (0.3, 0.42, 0.22), (0.48, 0.62, 0.36), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "stucco_blue": layered_material("mat_stucco_blue", (0.2, 0.36, 0.55), (0.38, 0.55, 0.75), 0.7, 9.0, 0.8, 0.96, 0.3),
+        "roof_terracotta": layered_material("mat_roof_terracotta", (0.40, 0.10, 0.04), (0.65, 0.22, 0.08), 1.5, 18.0, 0.7, 0.9, 0.4),
+        "terracotta": layered_material("mat_terracotta", (0.42, 0.16, 0.08), (0.66, 0.30, 0.16), 1.4, 12.0, 0.7, 0.9, 0.3),
+        "shutter_green": flat_material("mat_shutter_green", (0.08, 0.25, 0.14), roughness=0.5),
+        "shutter_blue": flat_material("mat_shutter_blue", (0.08, 0.18, 0.35), roughness=0.5),
+        "shutter_brown": flat_material("mat_shutter_brown", (0.25, 0.13, 0.06), roughness=0.5),
+        "fabric_red": flat_material("mat_fabric_red", (0.60, 0.06, 0.05), roughness=0.85),
+        "fabric_green": flat_material("mat_fabric_green", (0.06, 0.32, 0.14), roughness=0.85),
+        "fabric_cream": flat_material("mat_fabric_cream", (0.85, 0.80, 0.68), roughness=0.85),
+        "fabric_blue": flat_material("mat_fabric_blue", (0.07, 0.18, 0.45), roughness=0.85),
+        "fabric_orange": flat_material("mat_fabric_orange", (0.85, 0.38, 0.06), roughness=0.85),
+        # People: skin, hair and clothes.
+        "skin_1": flat_material("mat_skin_1", (0.80, 0.60, 0.48), roughness=0.6),
+        "skin_2": flat_material("mat_skin_2", (0.62, 0.43, 0.30), roughness=0.6),
+        "skin_3": flat_material("mat_skin_3", (0.42, 0.27, 0.17), roughness=0.6),
+        "skin_4": flat_material("mat_skin_4", (0.22, 0.13, 0.08), roughness=0.6),
+        "hair_black": flat_material("mat_hair_black", (0.02, 0.02, 0.02), roughness=0.7),
+        "hair_brown": flat_material("mat_hair_brown", (0.16, 0.08, 0.03), roughness=0.7),
+        "hair_blond": flat_material("mat_hair_blond", (0.65, 0.50, 0.22), roughness=0.7),
+        "hair_gray": flat_material("mat_hair_gray", (0.55, 0.55, 0.55), roughness=0.7),
+        "cloth_red": flat_material("mat_cloth_red", (0.55, 0.04, 0.04), roughness=0.85),
+        "cloth_blue": flat_material("mat_cloth_blue", (0.06, 0.14, 0.45), roughness=0.85),
+        "cloth_green": flat_material("mat_cloth_green", (0.06, 0.32, 0.10), roughness=0.85),
+        "cloth_yellow": flat_material("mat_cloth_yellow", (0.85, 0.65, 0.05), roughness=0.85),
+        "cloth_white": flat_material("mat_cloth_white", (0.85, 0.85, 0.82), roughness=0.85),
+        "cloth_black": flat_material("mat_cloth_black", (0.03, 0.03, 0.035), roughness=0.85),
+        "cloth_gray": flat_material("mat_cloth_gray", (0.32, 0.32, 0.34), roughness=0.85),
+        "cloth_orange": flat_material("mat_cloth_orange", (0.85, 0.32, 0.04), roughness=0.85),
+        "cloth_purple": flat_material("mat_cloth_purple", (0.30, 0.08, 0.40), roughness=0.85),
+        "cloth_pink": flat_material("mat_cloth_pink", (0.85, 0.42, 0.55), roughness=0.85),
+        "cloth_jeans": flat_material("mat_cloth_jeans", (0.10, 0.16, 0.30), roughness=0.85),
+        "cloth_beige": flat_material("mat_cloth_beige", (0.60, 0.50, 0.36), roughness=0.85),
+    }
+
+
+CAR_PAINTS = ("car_red", "car_blue", "car_white", "car_gray", "car_black")
+FACADES = ("facade_light", "facade_brick", "facade_gray", "facade_beige")
+HOUSE_PAINTS = {color: f"house_{color}" for color in ("white", "yellow", "blue", "red", "gray", "green")}
+STUCCOS = ("stucco_ochre", "stucco_terracotta", "stucco_cream", "stucco_pink", "stucco_yellow", "stucco_sage",
+           "stucco_blue")
+SHUTTERS = ("shutter_green", "shutter_blue", "shutter_brown")
+FABRICS = {"red": "fabric_red", "green": "fabric_green", "cream": "fabric_cream", "blue": "fabric_blue",
+           "orange": "fabric_orange"}
